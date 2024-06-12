@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat with Sara</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #chat-container {
+            width: 100%;
+            max-width: 600px;
+            height: 80%;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            background-color: #fff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        #header {
+            background-color: #007AFF;
+            color: white;
+            text-align: center;
+            padding: 15px;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        #messages {
+            flex: 1;
+            overflow-y: scroll;
+            padding: 10px;
+            background-color: #e5e5ea;
+            display: flex;
+            flex-direction: column;
+        }
+        .message {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 20px;
+            max-width: 80%;
+            word-wrap: break-word;
+            position: relative;
+        }
+        .user {
+            background-color: #007AFF;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        .bot {
+            background-color: #fff;
+            color: black;
+            margin-right: auto;
+            text-align: left;
+        }
+        #input-container {
+            display: flex;
+            border-top: 1px solid #ccc;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+        #user-input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            margin-right: 10px;
+            outline: none;
+        }
+        #send-btn, #record-btn {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 20px;
+            background-color: #007AFF;
+            color: white;
+            cursor: pointer;
+            outline: none;
+        }
+        #record-btn {
+            margin-left: 10px;
+        }
+        .time {
+            font-size: 0.8em;
+            color: #aaa;
+            margin-top: 5px;
+            position: absolute;
+            bottom: -15px;
+            right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="header">Chat with Sara</div>
+        <div id="messages"></div>
+        <div id="input-container">
+            <input type="text" id="user-input" placeholder="Type a message...">
+            <button id="send-btn">Send</button>
+            <button id="record-btn">Start Recording</button>
+        </div>
+    </div>
+    <script>
+        const messagesContainer = document.getElementById('messages');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const recordBtn = document.getElementById('record-btn');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let audioStream;
+
+        sendBtn.addEventListener('click', sendMessage);
+        recordBtn.addEventListener('click', toggleRecording);
+
+        function sendMessage() {
+            const message = userInput.value;
+            if (message.trim() !== '') {
+                addMessageToChat('user', message);
+                fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message: message })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    addMessageToChat('bot', data.text);
+                    if (data.audio) {
+                        playAudio(data.audio);
+                    }
+                });
+                userInput.value = '';
+            }
+        }
+
+        function addMessageToChat(sender, message) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', sender);
+
+            const messageText = document.createElement('span');
+            messageText.textContent = message;
+            messageElement.appendChild(messageText);
+
+            const timeStamp = document.createElement('div');
+            timeStamp.classList.add('time');
+            const now = new Date();
+            timeStamp.textContent = `${now.getHours()}:${now.getMinutes()} ${sender === 'user' ? 'Read' : 'Delivered'}`;
+            messageElement.appendChild(timeStamp);
+
+            messagesContainer.appendChild(messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function playAudio(audioData) {
+            const audio = new Audio('data:audio/wav;base64,' + audioData);
+            audio.play();
+        }
+
+        function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+
+        function startRecording() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        audioStream = stream;
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.start();
+                        recordBtn.textContent = 'Stop Recording';
+                        isRecording = true;
+
+                        mediaRecorder.ondataavailable = event => {
+                            audioChunks.push(event.data);
+                        };
+
+                        mediaRecorder.onstop = () => {
+                            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                            audioChunks = [];
+                            sendAudio(audioBlob);
+                            audioStream.getTracks().forEach(track => track.stop());
+                        };
+                    })
+                    .catch(error => {
+                        console.error('Error accessing audio devices:', error);
+                        alert('Could not access your microphone. Please check your microphone settings and ensure the site is served over HTTPS.');
+                    });
+            } else {
+                alert('getUserMedia not supported on your browser. Please use a modern browser like Chrome or Firefox.');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                recordBtn.textContent = 'Start Recording';
+                isRecording = false;
+            }
+        }
+
+        function sendAudio(audioBlob) {
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'audio.webm');
+            fetch('/audio', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                addMessageToChat('user', data.message);
+                if (data.response.text) {
+                    addMessageToChat('bot', data.response.text);
+                }
+                if (data.response.audio) {
+                    playAudio(data.response.audio);
+                }
+            })
+            .catch(error => {
+                console.error('Error sending audio to server:', error);
+            });
+        }
+
+        // Ensure HTTPS and prompt for microphone permissions
+        if (window.location.protocol !== 'https:') {
+            alert('Please use HTTPS for audio recording to work.');
+        } else {
+            navigator.permissions.query({ name: 'microphone' }).then(permissionStatus => {
+                if (permissionStatus.state !== 'granted') {
+                    alert('Please grant microphone permissions for recording.');
+                }
+            }).catch(error => {
+                console.error('Error checking microphone permissions:', error);
+            });
+        }
+    </script>
+</body>
+</html>
